@@ -1,6 +1,6 @@
 {
   "name": "koishi-plugin-warntoban",
-  "description": "a plugin for me to ban ",
+  "description": "战地1用于监测违规次数的插件，基于ghs的机器人，如果侵权可删除，qq群427897235",
   "version": "0.0.1",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
@@ -9,13 +9,11 @@
     "dist"
   ],
   "license": "MIT",
-  "scripts": {},
   "keywords": [
-    "chatbot",
+    "monitor",
     "koishi",
     "plugin"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
   }

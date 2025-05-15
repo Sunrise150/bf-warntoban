@@ -1,0 +1,996 @@
+  //以下为baka图片的处理函数
+
+  // const fullPath = path.resolve(ctx.baseDir, config.storagePath)
+  // fs.mkdir(fullPath, { recursive: true })
+  //   .then(() => ctx.logger('baka').info(`存储目录已创建：${fullPath}`))
+  //   .catch(error => ctx.logger('baka').error(`目录创建失败：${error}`))
+
+
+  // // 存储等待添加图片的用户状态
+  // const pendingUsers = new Set<string>()
+
+  // ctx.command('添加图片', '添加baka图片')
+  //   .alias('add-image')
+  //   .action(({ session }) => {
+  //     if (!session) return
+      
+  //     pendingUsers.add(session.userId)
+  //     return '请直接发送要添加的图片'
+  //   })
+
+
+
+  // ctx.middleware(async (session, next) => {
+  //   // 消息预处理
+  //   const content = session.content
+  //     .replace(/[\s\u3000]/g, '') // 去除全半角空格
+  //     .replace(/[!?。，]/g, '')   // 去除标点
+  //     .toLowerCase()
+  //   ctx.logger('baka').debug(`预处理内容：[${content}]`)
+  //   if (content === 'baka') {
+  //     try {
+  //       ctx.logger('baka').info('触发BAKA关键词')
+  //       const images = await ctx.database.get('baka_images', {})
+  //       if (images.length === 0) return '暂无可用图片'
+        
+  //       const randomImage = images[Math.floor(Math.random() * images.length)]
+  //       const imagePath = path.join(fullPath, randomImage.filename)
+  //       return h.image(imagePath)
+  //     } catch (error) {
+  //       ctx.logger('white-saintess').error(error)
+  //       return '图片获取失败'
+  //     }
+  //   }
+
+  //   // 处理图片添加流程
+  //   if (pendingUsers.has(session.userId)) {
+  //     pendingUsers.delete(session.userId)
+      
+  //     const image = session.elements.find(e => e.type === 'image')
+  //     if (!image) return '未检测到图片，添加已取消'
+
+  //     try {
+  //       // 下载图片
+  //       const url = image.attrs.url
+  //       const response = await ctx.http.get(url, { responseType: 'arraybuffer' })
+  //       const buffer = Buffer.from(response)
+
+  //       // 生成唯一文件名
+  //       const filename = `${randomUUID()}.${getFileExtension(url)}`
+  //       const filePath = path.join(fullPath, filename)
+
+  //       // 保存文件
+  //       await fs.writeFile(filePath, buffer)
+
+  //       // 写入数据库
+  //       await ctx.database.create('baka_images', {
+  //         filename,
+  //         adder: session.userId,
+  //         timestamp: new Date(),
+  //       })
+
+  //       return `图片添加成功！保存为：${filename}`
+  //     } catch (error) {
+  //       ctx.logger('white-saintess').error(error)
+  //       return '图片添加失败，请检查控制台日志'
+  //     }
+  //   }
+
+  //   return next()
+  // })
+  // // 从 URL 获取文件扩展名
+  // function getFileExtension(url: string): string {
+  //   const match = url.match(/\.([a-z0-9]+)(?:[\?#]|$)/i)
+  //   return match ? match[1].toLowerCase() : 'png'
+  // }
+  //1. 目录初始化错误监控
+  // const fullPath = path.resolve(ctx.baseDir, config.storagePath)
+  // const maxSize = config.maxSizeMB * 1024 * 1024
+  // let imageCache: ImageInfo[] = []
+  // let lastUpdate = 0
+
+  // // 初始化存储目录（带错误监控）
+  // const initialize = async () => {
+  //   try {
+  //     // 1. 创建存储目录
+  //     await fs.mkdir(fullPath, { recursive: true })
+  //     ctx.logger('baka').info(`📁 存储目录已就绪：${pathToFileURL(fullPath)}`)
+
+  //     // 2. 初始化缓存
+  //     await refreshCache()
+  //     ctx.logger('baka').info(`🖼️ 初始加载 ${imageCache.length} 张图片`)
+
+  //     // 3. 设置定时缓存刷新
+  //     ctx.setInterval(refreshCache, config.cacheTime)
+  //   } catch (error) {
+  //     ctx.logger('baka').error('❌ 初始化失败：', error)
+  //     throw error
+  //   }
+  // }
+
+
+  // const mimeTypeMap: Record<string, string> = {
+  //   '.png': 'image/png',
+  //   '.jpg': 'image/jpeg',
+  //   '.jpeg': 'image/jpeg',
+  //   '.gif': 'image/gif',
+  //   '.webp': 'image/webp'
+  // }
+
+  // const refreshCache = async () => {
+  //   try {
+  //     const files = await fs.readdir(fullPath)
+  //     const newCache: ImageInfo[] = []
+
+  //     for (const file of files) {
+  //       try {
+  //         const filePath = path.join(fullPath, file)
+  //         const stats = await fs.stat(filePath)
+  //         const ext = path.extname(file).toLowerCase()
+
+  //         // 文件验证
+  //         if (!stats.isFile()) {
+  //           ctx.logger('baka').debug(`⏩ 跳过非文件项：${file}`)
+  //           continue
+  //         }
+
+  //         if (!['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+  //           ctx.logger('baka').debug(`⏩ 跳过非图片文件：${file}`)
+  //           continue
+  //         }
+
+  //         if (stats.size > maxSize) {
+  //           ctx.logger('baka').warn(`⚠️ 图片过大已跳过：${file} (${formatSize(stats.size)})`)
+  //           continue
+  //         }
+
+  //         newCache.push({
+  //           filename: file,
+  //           path: filePath,
+  //           size: stats.size,
+  //           mtime: stats.mtime
+  //         })
+  //       } catch (error) {
+  //         ctx.logger('baka').error(`❗ 文件处理错误 [${file}]：`, error)
+  //       }
+  //     }
+
+  //     imageCache = newCache
+  //     lastUpdate = Date.now()
+  //     ctx.logger('baka').info(`🔄 缓存刷新完成，有效图片：${imageCache.length} 张`)
+  //   } catch (error) {
+  //     ctx.logger('baka').error('❌ 缓存刷新失败：', error)
+  //   }
+  // }
+
+
+
+
+  // ctx.middleware(async (session) => {
+  //   if (session.guildId !== config.targetGuild) {
+  //     ctx.logger('baka').debug(`消息来自非目标群组：${session.guildId}`)
+  //     return;
+  //   }
+  //   // 1. 消息过滤
+  //   if (!/^\s*baka\s*!*$/i.test(session.content)) {
+  //     ctx.logger('baka').debug(`⏭️ 忽略非触发消息：[${session.content}]`)
+  //     return
+  //   }
+
+  //   ctx.logger('baka').info(`🎯 收到 BAKA 请求 [用户：${session.userId}]`)
+
+  //   try {
+  //     // 2. 缓存检查
+  //     if (imageCache.length === 0) {
+  //       ctx.logger('baka').warn('⚠️ 请求时图片缓存为空')
+  //       return h.text([
+  //         'BAKA能量不足！(´；ω；`)',
+  //         '请管理员添加图片到：',
+  //         `file://${pathToFileURL(fullPath)}`
+  //       ].join('\n'))
+  //     }
+
+  //     // 3. 随机选择图片
+  //     const selected = imageCache[Math.floor(Math.random() * imageCache.length)]
+  //     ctx.logger('baka').debug(`🎲 随机选择图片：${selected.filename}`)
+
+  //     // 4. 文件二次验证
+  //     try {
+  //       await fs.access(selected.path)
+  //     } catch {
+  //       ctx.logger('baka').warn(`⚠️ 图片文件已丢失：${selected.filename}`)
+  //       await refreshCache()
+  //       return h.text('BAKA能量神秘消失了... (＞﹏＜)')
+  //     }
+
+  //     // 5. QQ平台适配
+  //     // if (session.platform === 'qq') {
+  //     //   // // QQ专用上传方式
+  //     //   // const asset = await session.bot.uploadAsset(selected.path)
+  //     //   // return [
+  //     //   //   h.image(asset.url),
+  //     //   //   h.text(`BAKA能量注入！✨ [${selected.filename}]`)
+  //     //   // ]
+  //     //   const buffer = await fs.readFile(selected.path)
+  //     //   return h.image(`base64://${buffer.toString('base64')}`)
+  //     // }
+
+  //     // // 其他平台通用方式
+  //     // return [
+  //     //   h.image(pathToFileURL(selected.path).href),
+  //     //   h.text(`BAKA能量注入！✨ [${selected.filename}]`)
+  //     // ]
+  //     let imageElement: h
+  //     if (session.platform === 'qq') {
+  //       const buffer = await fs.readFile(selected.path)
+  //       imageElement = h.image(`base64://${buffer.toString('base64')}`)
+  //     } else {
+  //       imageElement = h.image(pathToFileURL(selected.path).href)
+  //     }
+
+  //     return [
+  //       imageElement,
+  //       h.text(`BAKA能量注入成功！✨ [${selected.filename}]`),
+  //       h.text(`缓存时间：${new Date(lastUpdate).toLocaleString()}`)
+  //     ]
+
+  //   } catch (error) {
+  //     ctx.logger('baka').error('💥 处理流程异常：', error)
+  //     return h.text([
+  //       'BAKA系统崩溃了！(╯°□°）╯︵ ┻━┻',
+  //       '错误信息：',
+  //       h('code',error.message)
+  //     ].join('\n'))
+  //   }
+  // })
+
+  // function formatSize(bytes: number): string {
+  //   const units = ['B', 'KB', 'MB', 'GB']
+  //   let size = bytes
+  //   let unitIndex = 0
+  //   while (size >= 1024 && unitIndex < units.length - 1) {
+  //     size /= 1024
+  //     unitIndex++
+  //   }
+  //   return `${size.toFixed(2)}${units[unitIndex]}`
+  // }
+
+  // initialize().catch(() => {
+  //   ctx.logger('baka').
+  //   error('❌ 插件启动失败，请检查上述错误')
+  // })
+
+  // ctx.on('send', (session) => {
+  //   ctx.logger('baka').debug('发送消息：', session.content)
+  // })
+  // 核心状态
+  // const fullPath = path.resolve(ctx.baseDir, config.storagePath)
+  // const maxSize = config.maxSizeMB * 1024 * 1024
+  // let imageCache: ImageInfo[] = []
+  // let cacheVersion = 0
+//   const fullPath = path.resolve(ctx.baseDir, config.storagePath)
+//   const maxSize = config.maxSizeMB * 1024 * 1024
+//   let imageCache: ImageInfo[] = []
+//   let lastUpdate = 0
+// // ================= 初始化模块 =================
+//   const initialize = async () => {
+//     try {
+//       // 1. 创建存储目录
+//       await fs.mkdir(fullPath, { recursive: true })
+//       ctx.logger('baka').info(`📁 存储目录已就绪：${pathToFileURL(fullPath)}`)
+
+//       // 2. 初始化缓存
+//       await refreshCache()
+//       ctx.logger('baka').info(`🖼️ 初始加载 ${imageCache.length} 张图片`)
+
+//       // 3. 设置定时缓存刷新
+//       ctx.setInterval(refreshCache, config.cacheTime)
+//     } catch (error) {
+//       ctx.logger('baka').error('❌ 初始化失败：', error)
+//       throw error
+//     }
+//   }
+//   // ================= 缓存刷新模块 =================
+//   const refreshCache = async () => {
+//     try {
+//       const files = await fs.readdir(fullPath)
+//       const newCache: ImageInfo[] = []
+//       let validCount = 0
+//       let errorCount = 0
+
+//       for (const file of files) {
+//         try {
+//           const filePath = path.join(fullPath, file)
+//           const stats = await fs.stat(filePath)
+//           const ext = path.extname(file).toLowerCase()
+
+//           // 文件验证
+//           if (!stats.isFile()) {
+//             ctx.logger('baka').debug(`⏩ 跳过非文件项：${file}`)
+//             continue
+//           }
+
+//           if (!['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+//             ctx.logger('baka').debug(`⏩ 跳过非图片文件：${file}`)
+//             continue
+//           }
+
+//           if (stats.size > maxSize) {
+//             ctx.logger('baka').warn(`⚠️ 图片过大已跳过：${file} (${formatSize(stats.size)})`)
+//             continue
+//           }
+
+//           newCache.push({
+//             filename: file,
+//             path: filePath,
+//             size: stats.size,
+//             mtime: stats.mtime,
+//             url: pathToFileURL(filePath).href
+//           })
+//           validCount++
+//         } catch (error) {
+//           ctx.logger('baka').error(`❗ 文件处理错误 [${file}]：`, error)
+//         }
+//       }
+
+//       imageCache = newCache
+//       lastUpdate = Date.now()
+//       ctx.logger('baka').info(`🔄 缓存刷新完成，有效图片：${imageCache.length} 张`)
+//     } catch (error) {
+//       ctx.logger('baka').error('❌ 缓存刷新失败：', error)
+//     }
+//   }
+
+//   // ================= 缓存刷新模块 =================
+//   // ================= 业务逻辑模块 =================
+//   ctx.middleware(async (session) => {
+//     // 1. 消息过滤
+//     if (session.guildId !== config.targetGuild) {
+//       return
+//     }
+//     if (!/^\s*baka\s*!*$/i.test(session.content)) {
+//       ctx.logger('baka').debug(`⏭️ 忽略非触发消息：[${session.content}]`)
+//       return
+//     }
+
+//     ctx.logger('baka').info(`🎯 收到 BAKA 请求 [用户：${session.userId}]`)
+
+//     try {
+//       // 2. 缓存检查
+//       if (imageCache.length === 0) {
+//         ctx.logger('baka').warn('⚠️ 请求时图片缓存为空')
+//         return h.text([
+//           'BAKA能量不足！(´；ω；`)',
+//           '请管理员添加图片到：',
+//           `file://${pathToFileURL(fullPath)}`
+//         ].join('\n'))
+//       }
+
+//       // 3. 随机选择图片
+//       const selected = imageCache[Math.floor(Math.random() * imageCache.length)]
+//       ctx.logger('baka').debug(`🎲 随机选择图片：${selected.filename}`)
+
+//       // 4. 文件二次验证
+//       try {
+//         await fs.access(selected.path)
+//       } catch {
+//         ctx.logger('baka').warn(`⚠️ 图片文件已丢失：${selected.filename}`)
+//         await refreshCache()
+//         return h.text('BAKA能量神秘消失了... (＞﹏＜)')
+//       }
+
+
+//       let imageElement: h
+//       if (['onebot', 'qq'].includes(session.platform)) {
+//         // QQ平台需要特殊处理
+//         imageElement = h.image(selected.url) + h.text(' ')
+//       } else {
+//         imageElement = h.image(selected.url)
+//       }
+  
+//       return [
+//         imageElement,
+//         h.text(`BAKA能量注入成功！✨ [${selected.filename}]`),
+//         h.text(`缓存时间：${new Date(lastUpdate).toLocaleString()}`)
+//       ]
+//       // 5. QQ平台适配
+//       // if (session.platform === 'qq') {
+//       //   // QQ专用上传方式
+//       //   const asset = await session.bot.uploadAsset(selected.path)
+//       //   return [
+//       //     h.image(asset.url),
+//       //     h.text(`BAKA能量注入！✨ [${selected.filename}]`)
+//       //   ]
+//       // }
+
+//       // // 其他平台通用方式
+//       // return [
+//       //   h.image(pathToFileURL(selected.path).href),
+//       //   h.text(`BAKA能量注入！✨ [${selected.filename}]`)
+//       // ]
+
+//     } catch (error) {
+//       ctx.logger('baka').error('💥 处理流程异常：', error)
+//       return h.text([
+//         'BAKA系统崩溃了！(╯°□°）╯︵ ┻━┻',
+//         '错误信息：',
+//         h('code',error.message)
+//       ].join('\n'))
+//     }
+//   })
+
+//     // ================= 工具函数 =================
+//   function formatSize(bytes: number): string {
+//       const units = ['B', 'KB', 'MB', 'GB']
+//       let size = bytes
+//       let unitIndex = 0
+//       while (size >= 1024 && unitIndex < units.length - 1) {
+//         size /= 1024
+//         unitIndex++
+//       }
+//       return `${size.toFixed(2)}${units[unitIndex]}`
+//   }
+//       // ================= 启动初始化 =================
+//   initialize().catch(() => {
+//     ctx.logger('baka').error('❌ 插件启动失败，请检查上述错误')
+//   })
+
+
+//   // 服务初始化
+//   ctx.on('ready', async () => {
+//     await initializeStorage()
+//     await refreshCache()
+//     ctx.setInterval(() => refreshCache(), config.cacheTime)
+
+//     // 注册调试命令
+//     ctx.command('baka/reload', '手动刷新缓存')
+//       .action(async ({ session }) => {
+//         await refreshCache(true)
+//         return `Cache reloaded. ${imageCache.length} images available.`
+//       })
+//   })
+  // // 创建数据库表
+  // ctx.model.extend('baka_images', {
+  //   id: 'unsigned',
+  //   filename: 'string',
+  //   originalname: 'string',
+  //   adder: 'string',
+  //   timestamp: 'timestamp',
+  // }, { autoInc: true })
+
+
+  // // 最近发送记录
+  // const recentSent: number[] = []
+
+  // ctx.middleware(async (session, next) => {
+  //   if (session.guildId !== config.targetGuild) return next()
+  //   if (session.content.toLowerCase() !== 'baka') return next()
+
+  //   try {
+  //     const allImages = await ctx.database.get('baka_images', {})
+  //     if (allImages.length === 0) return next()
+
+  //     const available = allImages.filter(img => !recentSent.includes(img.id))
+  //     const candidates = available.length > 0 ? available : allImages
+  //     const selected = candidates[Math.floor(Math.random() * candidates.length)]
+
+  //     // 更新发送记录
+  //     recentSent.push(selected.id)
+  //     if (recentSent.length > config.maxRepeat) recentSent.shift()
+
+  //     // 构造本地文件路径
+  //     const filePath = path.join(fullPath, selected.filename)
+  //     await session.send(h.image(filePath))
+  //     return
+  //   } catch (error) {
+  //     ctx.logger('baka').error('图片发送失败:', error)
+  //   }
+  //   return next()
+  // })
+
+  // // 添加图片指令（通过文件上传）
+  // ctx.command('baka-add', '添加本地BAKA图片')
+  //   .alias('添加琪露诺图')
+  //   .usage('请直接发送图片文件，支持格式：jpg/png/gif')
+  //   .action(async ({ session }) => {
+  //     if (session.guildId !== config.targetGuild) {
+  //       return '此命令只能在指定群组使用'
+  //     }
+
+  //     // 使用类型断言获取图片元素
+  //     const imageElement = session.elements.find((e): e is ImageElement => e.type === 'image')
+  //     if (!imageElement) return '请直接发送图片文件'
+
+  //     try {
+  //       // 下载文件
+  //       const response = await ctx.http.get(imageElement.attrs.url, { responseType: 'arraybuffer' })
+  //       const buffer = Buffer.from(response)
+
+  //       // 验证文件类型
+  //       const ext = validateImageType(buffer)
+  //       if (!ext) return '仅支持 JPG/PNG/GIF 格式图片'
+
+  //       // 生成唯一文件名
+  //       const filename = `${randomUUID()}.${ext}`
+  //        // 获取原始文件名（多来源兼容）
+  //       const originalname = imageElement.attrs.filename || path.basename(new URL(imageElement.attrs.url).pathname) || filename
+
+  //       // 保存文件
+  //       await fs.writeFile(path.join(fullPath, filename), buffer)
+
+  //       // 创建数据库记录
+  //       const record = await ctx.database.create('baka_images', {
+  //         filename,
+  //         originalname,
+  //         adder: session.userId,
+  //         timestamp: new Date(),
+  //       })
+
+  //       // 返回添加结果
+  //       await session.send([
+  //         `✅ 图片添加成功！(ID: ${record.id})`,
+  //         h.image(path.join(fullPath, filename)),
+  //         `原始文件名：${originalname}`,
+  //         `添加者：${session.username}`,
+  //         `当前图库总数：`
+  //       ])
+  //     } catch (error) {
+  //       ctx.logger('baka').error('添加失败:', error)
+  //       return '图片添加失败，请检查文件格式'
+  //     }
+  //   })
+  //   // 图片类型验证函数
+  // function validateImageType(buffer: Buffer): string | null {
+  //   const header = buffer.subarray(0, 4).toString('hex')
+  //   switch (header) {
+  //     case 'ffd8ffe0': case 'ffd8ffe1': case 'ffd8ffe2':
+  //       return 'jpg'
+  //     case '89504e47':
+  //       return 'png'
+  //     case '47494638':
+  //       return 'gif'
+  //     default:
+  //       return null
+  //   }
+  // }
+
+  // // 管理指令（保留之前的删除和列表功能，需要调整文件路径）
+  // ctx.command('baka-manage', 'BAKA图片管理', { authority: 1 })
+  //   .subcommand('.delete <id:number>', '删除图片', { authority: 1 })
+  //   .action(async ({ session }, id) => {
+  //     const [record] = await ctx.database.get('baka_images', { id })
+  //     if (!record) return '未找到该图片'
+
+  //     try {
+  //       // 删除文件
+  //       await fs.unlink(path.join(fullPath, record.filename))
+  //       // 删除数据库记录
+  //       await ctx.database.remove('baka_images', { id })
+
+  //       // 更新最近发送记录
+  //       const index = recentSent.indexOf(id)
+  //       if (index > -1) recentSent.splice(index, 1)
+
+  //       return `✅ 已删除图片 ID: ${id} (${record.originalname})`
+  //     } catch (error) {
+  //       ctx.logger('baka').error('删除失败:', error)
+  //       return '删除操作失败'
+  //     }
+  //   })
+
+  // // 每天凌晨清理无效记录
+  // ctx.setInterval(async () => {
+  //   const records = await ctx.database.get('baka_images', {})
+  //   const files = await fs.readdir(fullPath)
+    
+  //   // 清理数据库中有记录但文件不存在的条目
+  //   const toDelete = records.filter(r => !files.includes(r.filename))
+  //   await ctx.database.remove('baka_images', {
+  //     id: { $in: toDelete.map(r => r.id) }
+  //   })
+  // }, 24 * 60 * 60 * 1000)
+
+
+  // ctx.command('baka-manage.backup', '备份图片库')
+  //   .action(async () => {
+  //     const backupPath = path.join(fullPath, 'backup', Date.now().toString())
+  //     await fs.mkdir(backupPath, { recursive: true })
+      
+  //     const files = await fs.readdir(fullPath)
+  //     await Promise.all(files.map(async (file) => {
+  //       if (file === 'backup') return
+  //       await fs.copyFile(
+  //         path.join(fullPath, file),
+  //         path.join(backupPath, file)
+  //       )
+  //     })
+  //   )
+  //     return `备份完成，共备份 ${files.length} 个文件`
+  // })
+    //自动添加2服vip指令
+  //session.send('青云客关闭完成' + h('at', { id: session.userId }));
+  // ctx.command('+v <server:string> <message:string> [day:number]', '虚拟命令示例', { authority: 1 })
+  // .action(async ({ session }, server, message, day) => {
+  //   // 1. 发送格式化响应
+  //   await session.send(`*+v ${server} ${message} ${day || ''}`.trim())
+
+  //   // 2. 使用setTimeout实现延迟（Koishi推荐方式）
+  //   ctx.setTimeout(async () => {
+  //     await session.send(`*check ${server}`)
+  //   }, 2000)
+  // })
+  // ctx.command('-v <server:string> <message:string> [day:number]', '虚拟命令示例', { authority: 1 })
+  // .action(async ({ session }, server, message, day) => {
+  //   // 1. 发送格式化响应
+  //   await session.send(`*+v ${server} ${message} ${day || ''}`.trim())
+
+  //   // 2. 使用setTimeout实现延迟（Koishi推荐方式）
+  //   ctx.setTimeout(async () => {
+  //     await session.send(`*check ${server}`)
+  //   }, 2000)
+  // })
+  // import { Context, Schema } from 'koishi'
+
+// export const name = 'warntoban'
+
+// export interface Config {}
+
+// export const inject = ['database']
+
+// export const Config: Schema<Config> = Schema.object({})
+
+
+// // 强化正则表达式，允许灵活空格
+// const buildPattern = (server: string, player: string, reason: string) => {
+//   return new RegExp(
+//     `在服务器\\s*${server}\\s*中踢出玩家\\s*${player}\\s*成功原因\\s*：\\s*${reason}`
+//   )
+// }
+
+// // 声明数据库表结构
+// declare module 'koishi' {
+//   interface Tables {
+//     ban_records: {
+//       id: number
+//       server: string
+//       player: string
+//       reason: string
+//       timestamp: Date
+//     }
+//   }
+// }
+
+// export function apply(ctx: Context) {
+//   // write your plugin here
+//   // 创建数据库表（如果不存在）
+//   ctx.model.extend('ban_records', {
+//     id: 'unsigned',
+//     server: 'string',
+//     player: 'string',
+//     reason: 'string',
+//     timestamp: 'timestamp',
+//   }, {
+//     autoInc: true,
+//   })
+//   // 配置监听参数
+//   const config = {
+//     targetGuild: '427897235',    // 目标QQ群号
+//     adminUserId: '974111779',    // 管理员用户ID
+//     serverNumber: '2',           // 监控的服务器编号
+//     playerName: 'aiyachengle',   // 监控的玩家ID
+//     triggerReason: '禁用kb',      // 触发关键词
+//     maxViolations: 2,            // 最大允许违规次数
+//   }
+//   // 使用更宽松的正则
+//   const kickPattern = buildPattern(
+//     config.serverNumber,
+//     config.playerName,
+//     config.triggerReason
+//   )
+//   // 注册消息中间件
+//   ctx.middleware(async (session, next) => {
+//     // 1. 前置条件检查
+//     if (session.guildId !== config.targetGuild) {
+//       ctx.logger('ban-monitor').debug('非目标群组消息，跳过处理')
+//       return next()
+//     }
+
+//     if (session.userId !== config.adminUserId) {
+//       ctx.logger('ban-monitor').debug('非管理员消息，跳过处理')
+//       return next()
+//     }
+
+//     // 2. 消息内容匹配
+//     if (!kickPattern.test(session.content)) {
+//       ctx.logger('ban-monitor').debug('消息内容不匹配规则')
+//       return next()
+//     }
+
+//     ctx.logger('ban-monitor').info('检测到符合条件的踢人操作')
+
+//     try {
+//       // 3. 创建新记录
+//       await ctx.database.create('ban_records', {
+//         server: config.serverNumber,
+//         player: config.playerName,
+//         reason: config.triggerReason,
+//         timestamp: new Date(),
+//       })
+
+//       // 4. 查询历史记录
+//       const records = await ctx.database.get('ban_records', {
+//         server: config.serverNumber,
+//         player: config.playerName,
+//       })
+
+//       // 5. 检查违规次数
+//       if (records.length >= config.maxViolations) {
+//         const recordList = records.map((r, index) => 
+//           `违规 #${index + 1}
+//           时间：${r.timestamp.toLocaleString()}
+//           原因：${r.reason}`
+//         ).join('\n────────────\n')
+
+//         await session.send([
+//           `[${config.serverNumber} 服] 玩家 ${config.playerName} 达到封禁标准！`,
+//           `══════════════════`,
+//           recordList,
+//           `══════════════════`,
+//           `累计违规次数：${records.length} 次`,
+//           `请立即执行封禁操作！`,
+//         ].join('\n'))
+
+//         ctx.logger('ban-monitor').info('已发送封禁提醒')
+//       }
+//     } catch (error) {
+//       ctx.logger('ban-monitor').error('数据库操作失败:', error)
+//       await session.send('⚠️ 违规记录保存失败，请检查系统日志！')
+//     }
+
+//     return next()
+//   })
+//   // 添加调试命令（可选）
+//   ctx.command('ban-records', '查看违规记录')
+//     .action(async ({ session }) => {
+//       const records = await ctx.database.get('ban_records', {
+//         server: config.serverNumber,
+//         player: config.playerName,
+//       })
+      
+//       return records.length 
+//         ? `找到 ${records.length} 条记录：\n` +
+//           records.map(r => 
+//             `[${r.timestamp.toLocaleString()}] ${r.reason}`
+//           ).join('\n')
+//         : '暂无违规记录'
+//     })
+// }
+// import { Context, Schema } from 'koishi'
+  // // 创建数据库表
+  // ctx.model.extend('baka_images', {
+  //   id: 'unsigned',
+  //   filename: 'string',
+  //   originalname: 'string',
+  //   adder: 'string',
+  //   timestamp: 'timestamp',
+  // }, { autoInc: true })
+
+
+  // // 最近发送记录
+  // const recentSent: number[] = []
+
+  // ctx.middleware(async (session, next) => {
+  //   if (session.guildId !== config.targetGuild) return next()
+  //   if (session.content.toLowerCase() !== 'baka') return next()
+
+  //   try {
+  //     const allImages = await ctx.database.get('baka_images', {})
+  //     if (allImages.length === 0) return next()
+
+  //     const available = allImages.filter(img => !recentSent.includes(img.id))
+  //     const candidates = available.length > 0 ? available : allImages
+  //     const selected = candidates[Math.floor(Math.random() * candidates.length)]
+
+  //     // 更新发送记录
+  //     recentSent.push(selected.id)
+  //     if (recentSent.length > config.maxRepeat) recentSent.shift()
+
+  //     // 构造本地文件路径
+  //     const filePath = path.join(fullPath, selected.filename)
+  //     await session.send(h.image(filePath))
+  //     return
+  //   } catch (error) {
+  //     ctx.logger('baka').error('图片发送失败:', error)
+  //   }
+  //   return next()
+  // })
+
+  // // 添加图片指令（通过文件上传）
+  // ctx.command('baka-add', '添加本地BAKA图片')
+  //   .alias('添加琪露诺图')
+  //   .usage('请直接发送图片文件，支持格式：jpg/png/gif')
+  //   .action(async ({ session }) => {
+  //     if (session.guildId !== config.targetGuild) {
+  //       return '此命令只能在指定群组使用'
+  //     }
+
+  //     // 使用类型断言获取图片元素
+  //     const imageElement = session.elements.find((e): e is ImageElement => e.type === 'image')
+  //     if (!imageElement) return '请直接发送图片文件'
+
+  //     try {
+  //       // 下载文件
+  //       const response = await ctx.http.get(imageElement.attrs.url, { responseType: 'arraybuffer' })
+  //       const buffer = Buffer.from(response)
+
+  //       // 验证文件类型
+  //       const ext = validateImageType(buffer)
+  //       if (!ext) return '仅支持 JPG/PNG/GIF 格式图片'
+
+  //       // 生成唯一文件名
+  //       const filename = `${randomUUID()}.${ext}`
+  //        // 获取原始文件名（多来源兼容）
+  //       const originalname = imageElement.attrs.filename || path.basename(new URL(imageElement.attrs.url).pathname) || filename
+
+  //       // 保存文件
+  //       await fs.writeFile(path.join(fullPath, filename), buffer)
+
+  //       // 创建数据库记录
+  //       const record = await ctx.database.create('baka_images', {
+  //         filename,
+  //         originalname,
+  //         adder: session.userId,
+  //         timestamp: new Date(),
+  //       })
+
+  //       // 返回添加结果
+  //       await session.send([
+  //         `✅ 图片添加成功！(ID: ${record.id})`,
+  //         h.image(path.join(fullPath, filename)),
+  //         `原始文件名：${originalname}`,
+  //         `添加者：${session.username}`,
+  //         `当前图库总数：`
+  //       ])
+  //     } catch (error) {
+  //       ctx.logger('baka').error('添加失败:', error)
+  //       return '图片添加失败，请检查文件格式'
+  //     }
+  //   })
+  //   // 图片类型验证函数
+  // function validateImageType(buffer: Buffer): string | null {
+  //   const header = buffer.subarray(0, 4).toString('hex')
+  //   switch (header) {
+  //     case 'ffd8ffe0': case 'ffd8ffe1': case 'ffd8ffe2':
+  //       return 'jpg'
+  //     case '89504e47':
+  //       return 'png'
+  //     case '47494638':
+  //       return 'gif'
+  //     default:
+  //       return null
+  //   }
+  // }
+
+  // // 管理指令（保留之前的删除和列表功能，需要调整文件路径）
+  // ctx.command('baka-manage', 'BAKA图片管理', { authority: 1 })
+  //   .subcommand('.delete <id:number>', '删除图片', { authority: 1 })
+  //   .action(async ({ session }, id) => {
+  //     const [record] = await ctx.database.get('baka_images', { id })
+  //     if (!record) return '未找到该图片'
+
+  //     try {
+  //       // 删除文件
+  //       await fs.unlink(path.join(fullPath, record.filename))
+  //       // 删除数据库记录
+  //       await ctx.database.remove('baka_images', { id })
+
+  //       // 更新最近发送记录
+  //       const index = recentSent.indexOf(id)
+  //       if (index > -1) recentSent.splice(index, 1)
+
+  //       return `✅ 已删除图片 ID: ${id} (${record.originalname})`
+  //     } catch (error) {
+  //       ctx.logger('baka').error('删除失败:', error)
+  //       return '删除操作失败'
+  //     }
+  //   })
+
+  // // 每天凌晨清理无效记录
+  // ctx.setInterval(async () => {
+  //   const records = await ctx.database.get('baka_images', {})
+  //   const files = await fs.readdir(fullPath)
+    
+  //   // 清理数据库中有记录但文件不存在的条目
+  //   const toDelete = records.filter(r => !files.includes(r.filename))
+  //   await ctx.database.remove('baka_images', {
+  //     id: { $in: toDelete.map(r => r.id) }
+  //   })
+  // }, 24 * 60 * 60 * 1000)
+
+
+  // ctx.command('baka-manage.backup', '备份图片库')
+  //   .action(async () => {
+  //     const backupPath = path.join(fullPath, 'backup', Date.now().toString())
+  //     await fs.mkdir(backupPath, { recursive: true })
+      
+  //     const files = await fs.readdir(fullPath)
+  //     await Promise.all(files.map(async (file) => {
+  //       if (file === 'backup') return
+  //       await fs.copyFile(
+  //         path.join(fullPath, file),
+  //         path.join(backupPath, file)
+  //       )
+  //     })
+  //   )
+  //     return `备份完成，共备份 ${files.length} 个文件`
+  // })
+      const role = session.event?.member?.roles;
+    if(role.includes('member')){
+        await session.send('权限不足')
+    } 
+      // ctx.middleware(async (session, next) => {
+  //   if (session.guildId !== config.targetGuild) {
+  //     ctx.logger('ban').debug(`加v消息来自非目标群组：${session.guildId}`)
+  //     return next()
+  //   }
+  //   const message = session.content
+  //   if (message.startsWith("+v ")) {
+  //     const role = session.event?.member?.roles;
+  //     if(role.includes('member')){
+  //       await session.send('权限不足')
+  //       return next();
+  //     } 
+  //     else {
+  //       // 提取 server, message, 和可选的 day 参数
+  //       const parts = message.split(" ");
+  //       const server = parts[1];
+  //       const messageContent = parts[2];
+  //       const day = parts.length > 3 ? parseInt(parts[3]) : undefined;
+    
+  //       // 发送格式化后的消息
+  //       await session.send(`*+v ${server} ${messageContent} ${day || ''}`.trim());
+    
+  //       // 使用 setTimeout 实现 2 秒延迟
+  //       ctx.setTimeout(async () => {
+  //         await session.send(`*check ${server}`);
+  //       }, 2000);
+    
+  //       return;
+  //     }
+  //   }
+  //   // 否则，继续处理下一个中间件
+  //   await next();
+  // });
+  // ctx.middleware(async (session, next) => {
+  //   if (session.guildId !== config.targetGuild) {
+  //     ctx.logger('ban').debug(`加v消息来自非目标群组：${session.guildId}`)
+  //     return next()
+  //   }
+  //   const message = session.content
+  //   if (message.startsWith("-v ")) {
+  //     const role = session.event?.member?.roles;
+  //     if(role.includes('member')){
+  //       await session.send('权限不足')
+  //       return next();
+  //     } 
+  //     else {
+  //       // 提取 server, message, 和可选的 day 参数
+  //       const parts = message.split(" ");
+  //       const server = parts[1];
+  //       const messageContent = parts[2];
+  //       const day = parts.length > 3 ? parseInt(parts[3]) : undefined;
+    
+  //       // 发送格式化后的消息
+  //       await session.send(`*-v ${server} ${messageContent} ${day || ''}`.trim());
+    
+  //       // 使用 setTimeout 实现 2 秒延迟
+  //       ctx.setTimeout(async () => {
+  //         await session.send(`*check ${server}`);
+  //       }, 2000);
+    
+  //       return;
+  //     }
+  //   }
+  //   // 否则，继续处理下一个中间件
+  //   await next();
+  // });
