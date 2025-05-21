@@ -1,6 +1,6 @@
 
 import { Context, Schema, h, Element, Logger, } from 'koishi'
-import sharp from 'sharp'
+// import sharp from 'sharp'
 import path from 'path'
 import {promises as fs} from 'fs'
 import { createWriteStream } from 'fs'
@@ -26,12 +26,19 @@ declare module 'koishi' {
       isVBAN:boolean
     }
     confession_progress:{
-      userId:string
-      days:number
-      lastDate:string
+      userId: string,
+      days: number,
+      lastDate: string,
     }
-    report_with_evidence: ReportWithEvidence
-    report_without_evidence: ReportWithoutEvidence
+    Report:{
+      id: string
+      initiator: string
+      confirmers: string[]
+      target: string
+      reason: string
+      status: 'pending' | 'confirmed' | 'rejected'
+      createdAt: Date
+    }
   }
 }
 
@@ -76,28 +83,9 @@ interface BanRecord{
   timestamp: Date
 }
 
-interface ReportWithEvidence {
-  id: number
-  reporter_id: string
-  reported_id: string
-  reason: string
-  evidence_path: string
-  created_at: Date
-}
-
-interface ReportWithoutEvidence {
-  id: number
-  reporter_id: string
-  reported_id: string
-  reason: string
-  created_at: Date
-}
-
 // 脏话过滤列表（可根据需要扩展），这里需要进行二次设计
 const BAD_WORDS = ['滚','傻逼','皇帝',]
 //额外的第三方指令
-
-
 
 async function exportBanRecordsToCSV(ctx: Context, outputPath: string = 'ban_records.csv') {
   try {
@@ -166,24 +154,17 @@ export async function apply(ctx: Context, config: Config) {
     ]
   })
 
-  ctx.model.extend('report_with_evidence', {
-    id: 'unsigned',
-    reporter_id: 'string',
-    reported_id: 'string',
-    reason: 'text',
-    evidence_path: 'string',
-    created_at: 'timestamp',
+  ctx.model.extend('Report', {
+    id: 'string',
+    initiator: 'string',
+    confirmers: 'list', // 使用列表类型
+    target: 'string',
+    reason: 'string',
+    status: { type: 'string', initial: 'pending' },
+    createdAt: 'timestamp',
+  }, {
+    primary: 'id',
   })
-
-  ctx.model.extend('report_without_evidence', {
-    id: 'unsigned',
-    reporter_id: 'string',
-    reported_id: 'string',
-    reason: 'text',
-    created_at: 'timestamp',
-  })
-
-
 
 
   ctx.model.extend('confession_progress', {
@@ -475,6 +456,9 @@ export async function apply(ctx: Context, config: Config) {
   
     return next()
   },true)
+  //
+
+  //
 
 
 
@@ -918,166 +902,166 @@ export async function apply(ctx: Context, config: Config) {
   })
 
 
-  ctx.command('ban-today-list', '生成今日服务器踢人排行榜', { authority: 1 })
-  .action(async ({ session ,next}) => {
-    if (session.guildId !== config.targetGuild) return next()
-    try {
-      // ==================== 数据准备 ====================
-      // 1. 获取今日踢人数据
-      const now = new Date()
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const records = await ctx.database.get('ban_records', {
-        timestamp: { $gte: todayStart }
-      })
+  // ctx.command('ban-today-list', '生成今日服务器踢人排行榜', { authority: 1 })
+  // .action(async ({ session ,next}) => {
+  //   if (session.guildId !== config.targetGuild) return next()
+  //   try {
+  //     // ==================== 数据准备 ====================
+  //     // 1. 获取今日踢人数据
+  //     const now = new Date()
+  //     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  //     const records = await ctx.database.get('ban_records', {
+  //       timestamp: { $gte: todayStart }
+  //     })
 
-      // 2. 统计服务器排名
-      const serverRank = Array.from(
-        records.reduce((map, r) => map.set(r.server, (map.get(r.server) || 0) + 1), new Map<string, number>())
-      ).sort((a, b) => b[1] - a[1]).slice(0, 3)
+  //     // 2. 统计服务器排名
+  //     const serverRank = Array.from(
+  //       records.reduce((map, r) => map.set(r.server, (map.get(r.server) || 0) + 1), new Map<string, number>())
+  //     ).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
-      // ==================== 资源路径配置 ====================
-      const ASSETS = {
-        // 请修改为你的实际路径
-        background: resolve(__dirname, '../assets/rank-bg.png'),
-        rankIcons: [
-          resolve(__dirname, '../assets/rank-1.png'), // 自动识别为冠军
-          resolve(__dirname, '../assets/rank-2.png'), // 自动识别为亚军
-          resolve(__dirname, '../assets/rank-3.png')  // 自动识别为季军
-        ],
-        font: resolve(__dirname, '../fonts/YOUR_FONT.ttf') // 替换为你的字体文件
-      }
+  //     // ==================== 资源路径配置 ====================
+  //     const ASSETS = {
+  //       // 请修改为你的实际路径
+  //       background: resolve(__dirname, '../assets/rank-bg.png'),
+  //       rankIcons: [
+  //         resolve(__dirname, '../assets/rank-1.png'), // 自动识别为冠军
+  //         resolve(__dirname, '../assets/rank-2.png'), // 自动识别为亚军
+  //         resolve(__dirname, '../assets/rank-3.png')  // 自动识别为季军
+  //       ],
+  //       font: resolve(__dirname, '../fonts/YOUR_FONT.ttf') // 替换为你的字体文件
+  //     }
 
-      // ==================== 智能图标匹配 ====================
-      // 通过文件名自动检测图标等级
-      const detectRankLevel = (path: string) => {
-        const filename = path.toLowerCase().split('/').pop()
-        if (filename.includes('1') || filename.includes('gold')) return 1
-        if (filename.includes('2') || filename.includes('silver')) return 2
-        if (filename.includes('3') || filename.includes('bronze')) return 3
-        throw new Error(`无法识别图标等级: ${path}`)
-      }
+  //     // ==================== 智能图标匹配 ====================
+  //     // 通过文件名自动检测图标等级
+  //     const detectRankLevel = (path: string) => {
+  //       const filename = path.toLowerCase().split('/').pop()
+  //       if (filename.includes('1') || filename.includes('gold')) return 1
+  //       if (filename.includes('2') || filename.includes('silver')) return 2
+  //       if (filename.includes('3') || filename.includes('bronze')) return 3
+  //       throw new Error(`无法识别图标等级: ${path}`)
+  //     }
 
-      // 排序图标资源
-      const sortedIcons = ASSETS.rankIcons
-        .map(path => ({ path, rank: detectRankLevel(path) }))
-        .sort((a, b) => a.rank - b.rank)
-        .map(item => item.path)
+  //     // 排序图标资源
+  //     const sortedIcons = ASSETS.rankIcons
+  //       .map(path => ({ path, rank: detectRankLevel(path) }))
+  //       .sort((a, b) => a.rank - b.rank)
+  //       .map(item => item.path)
 
-      // ==================== 图片合成 ====================
-      // 1. 加载背景图
-      const bgImage = sharp(ASSETS.background)
-      const bgMetadata = await bgImage.metadata()
+  //     // ==================== 图片合成 ====================
+  //     // 1. 加载背景图
+  //     const bgImage = sharp(ASSETS.background)
+  //     const bgMetadata = await bgImage.metadata()
       
-      // 2. 定义合成位置（根据你的背景图调整）
-      const POSITIONS = [
-        { x: bgMetadata.width * 0.4, y: bgMetadata.height * 0.15 }, // 冠军位置
-        { x: bgMetadata.width * 0.1, y: bgMetadata.height * 0.55 }, // 亚军
-        { x: bgMetadata.width * 0.6, y: bgMetadata.height * 0.55 }  // 季军
-      ]
+  //     // 2. 定义合成位置（根据你的背景图调整）
+  //     const POSITIONS = [
+  //       { x: bgMetadata.width * 0.4, y: bgMetadata.height * 0.15 }, // 冠军位置
+  //       { x: bgMetadata.width * 0.1, y: bgMetadata.height * 0.55 }, // 亚军
+  //       { x: bgMetadata.width * 0.6, y: bgMetadata.height * 0.55 }  // 季军
+  //     ]
 
-       // 动态计算最大图层尺寸
-      const MAX_LAYER = {
-        width: bgMetadata.width * 0.33,
-        height: bgMetadata.height * 0.33
-      }
-      const composites = []
+  //      // 动态计算最大图层尺寸
+  //     const MAX_LAYER = {
+  //       width: bgMetadata.width * 0.33,
+  //       height: bgMetadata.height * 0.33
+  //     }
+  //     const composites = []
 
-      for (let i = 0; i < serverRank.length; i++) {
-        const [serverId, count] = serverRank[i]
+  //     for (let i = 0; i < serverRank.length; i++) {
+  //       const [serverId, count] = serverRank[i]
         
-        // 调整图标尺寸
-        const resizedIcon = await sharp(sortedIcons[i])
-          .resize({
-            width: Math.min(MAX_LAYER.width, 400),
-            height: Math.min(MAX_LAYER.height, 200),
-            fit: 'inside'
-          })
-          .toBuffer()
+  //       // 调整图标尺寸
+  //       const resizedIcon = await sharp(sortedIcons[i])
+  //         .resize({
+  //           width: Math.min(MAX_LAYER.width, 400),
+  //           height: Math.min(MAX_LAYER.height, 200),
+  //           fit: 'inside'
+  //         })
+  //         .toBuffer()
       
 
-        // 获取实际尺寸
-        const iconMeta = await sharp(resizedIcon).metadata()
+  //       // 获取实际尺寸
+  //       const iconMeta = await sharp(resizedIcon).metadata()
 
-        // 安全位置计算
-        const positions = [
-          { 
-            x: Math.floor(bgMetadata.width * 0.5 - iconMeta.width / 2),
-            y: Math.floor(bgMetadata.height * 0.15)
-          },
-          { 
-            x: Math.floor(bgMetadata.width * 0.2),
-            y: Math.floor(bgMetadata.height * 0.6 - iconMeta.height)
-          },
-          { 
-            x: Math.floor(bgMetadata.width * 0.8 - iconMeta.width),
-            y: Math.floor(bgMetadata.height * 0.6 - iconMeta.height)
-          }
-        ]
+  //       // 安全位置计算
+  //       const positions = [
+  //         { 
+  //           x: Math.floor(bgMetadata.width * 0.5 - iconMeta.width / 2),
+  //           y: Math.floor(bgMetadata.height * 0.15)
+  //         },
+  //         { 
+  //           x: Math.floor(bgMetadata.width * 0.2),
+  //           y: Math.floor(bgMetadata.height * 0.6 - iconMeta.height)
+  //         },
+  //         { 
+  //           x: Math.floor(bgMetadata.width * 0.8 - iconMeta.width),
+  //           y: Math.floor(bgMetadata.height * 0.6 - iconMeta.height)
+  //         }
+  //       ]
 
 
-        // 生成文字层（尺寸适配）
-        const textSVG = Buffer.from(`
-          <svg width="${iconMeta.width}" height="${iconMeta.height}">
-            <style>
-              @font-face { 
-                font-family: customFont; 
-                src: url("file://${ASSETS.font}");
-              }
-              text { 
-                font-family: customFont;
-                font-size: ${Math.min(iconMeta.width * 0.1, 42)}px; 
-              }
-            </style>
-            <text x="50%" y="30%" 
-                  fill="#FFFFFF" 
-                  text-anchor="middle"
-                  font-weight="bold">
-              ${['🏆 冠军', '🥈 亚军', '🥉 季军'][i]}
-            </text>
-            <text x="50%" y="60%" 
-                  fill="#FFD700" 
-                  text-anchor="middle">
-              服务器 ${serverId}
-            </text>
-            <text x="50%" y="80%" 
-                  fill="#FFFFFF" 
-                  text-anchor="middle">
-              ${count}次
-            </text>
-          </svg>
-        `)
+  //       // 生成文字层（尺寸适配）
+  //       const textSVG = Buffer.from(`
+  //         <svg width="${iconMeta.width}" height="${iconMeta.height}">
+  //           <style>
+  //             @font-face { 
+  //               font-family: customFont; 
+  //               src: url("file://${ASSETS.font}");
+  //             }
+  //             text { 
+  //               font-family: customFont;
+  //               font-size: ${Math.min(iconMeta.width * 0.1, 42)}px; 
+  //             }
+  //           </style>
+  //           <text x="50%" y="30%" 
+  //                 fill="#FFFFFF" 
+  //                 text-anchor="middle"
+  //                 font-weight="bold">
+  //             ${['🏆 冠军', '🥈 亚军', '🥉 季军'][i]}
+  //           </text>
+  //           <text x="50%" y="60%" 
+  //                 fill="#FFD700" 
+  //                 text-anchor="middle">
+  //             服务器 ${serverId}
+  //           </text>
+  //           <text x="50%" y="80%" 
+  //                 fill="#FFFFFF" 
+  //                 text-anchor="middle">
+  //             ${count}次
+  //           </text>
+  //         </svg>
+  //       `)
 
-        // 合成图层
-        const finalLayer = await sharp(resizedIcon)
-        .composite([{ input: textSVG, blend: 'over' }])
-        .toBuffer()
+  //       // 合成图层
+  //       const finalLayer = await sharp(resizedIcon)
+  //       .composite([{ input: textSVG, blend: 'over' }])
+  //       .toBuffer()
 
-        composites.push({
-          input: finalLayer,
-          left: positions[i].x,
-          top: positions[i].y
-        })
-      }
+  //       composites.push({
+  //         input: finalLayer,
+  //         left: positions[i].x,
+  //         top: positions[i].y
+  //       })
+  //     }
 
-      // 最终合成
-      const outputBuffer = await bgImage
-        .composite(composites)
-        .png()
-        .toBuffer()
+  //     // 最终合成
+  //     const outputBuffer = await bgImage
+  //       .composite(composites)
+  //       .png()
+  //       .toBuffer()
 
-      await session.send(h.image(outputBuffer, 'image/png'))
-    } catch (error) {
-      ctx.logger('ban').error('合成失败:', error)
-      await session?.send([
-        '❌ 排行榜生成失败：',
-        '技术细节：' + error.message,
-        '请检查：',
-        '1. 素材文件尺寸是否过大？',
-        '2. 字体文件路径是否正确？',
-        '3. 模板位置参数是否需要调整？'
-      ].join('\n'))
-    }
-  })
+  //     await session.send(h.image(outputBuffer, 'image/png'))
+  //   } catch (error) {
+  //     ctx.logger('ban').error('合成失败:', error)
+  //     await session?.send([
+  //       '❌ 排行榜生成失败：',
+  //       '技术细节：' + error.message,
+  //       '请检查：',
+  //       '1. 素材文件尺寸是否过大？',
+  //       '2. 字体文件路径是否正确？',
+  //       '3. 模板位置参数是否需要调整？'
+  //     ].join('\n'))
+  //   }
+  // })
 
   ctx.command('导出违规记录 [outputPath]', '导出所有封禁记录到CSV文件')
     .alias('违规记录')
@@ -1222,7 +1206,99 @@ export async function apply(ctx: Context, config: Config) {
       return '🛐 忏悔通道受阻，请稍后再试'
     }
   })
+  //自举报措施
+  // ctx.command('自举报 <id:string> <reason:string>', '自举报')
+  // .action(async ({ session }, id, reason) => {
+  //   //需要做的做法为：当发出自举报请求之后，为了作出一个效果，可以先设置坑洞
+  //   //在数据库当中设定一个特征值，将该特征值作为该行目前唯一的索引值
+  //   //然后将该将该设定值返回给用户，用户将证据图片发出，要求另外一名用户来一同进行举报
+  //   //另外一名用户需要通过特征值来进行肯定行为，当两个用户都举报认为无误之后
+  //   //执行操作指令，将两名举报者的id记录入输入库，并添加一个特征行为，记录举报成功还是误报
+  //   //后面管理员在检查或者出现任何问题之后，这两个举报者被记录一次错误举报，当错误举报到达2次之后，严重警告。
+  //   //过程1：用户1发出：自举报 sunrise150 偷家
+  //   //2：bot：给出证据，同时返回特征值
+  //   //3：用户1：发出证据
+  //   //4：用户2：赞同举报（特征值）
+  //   //5：bot：给出结果
+  //   //（）：管理员
+  // })
   //
+  // 发起举报命令（修正参数类型）
+  ctx.command('qcl举报 <target:string> <reason:string>', '发起群体举报')
+  .action(async ({ session }, target, reason) => {
+    if (!target || !reason) return '参数格式错误'
+
+    // 生成唯一ID（直接内联）
+    const reportId = Date.now().toString(36) + 
+      Math.random().toString(36).slice(2, 6).toUpperCase()
+
+    await ctx.database.create('Report', {
+      id: reportId,
+      initiator: session.userId,
+      confirmers: [session.userId],
+      target,
+      reason,
+      createdAt: new Date(),
+    })
+
+    return [
+      `qcl举报已创建 (${reportId})`,
+      `当前确认: 1/3`,
+      `其他用户可用命令确认：确认举报 ${reportId}`
+    ].join('\n')
+  })
+
+
+
+   // 确认举报命令
+  // 确认举报命令（添加类型守卫）
+  // 确认举报命令
+ctx.command('确认举报 <reportId:string>', '确认举报')
+.action(async ({ session }, reportId) => {
+  if (!reportId) return '请输入举报编号'
+
+  const [report] = await ctx.database.get('Report', { id: reportId })
+  if (!report) return '无效的举报编号'
+
+  const userId = session.userId
+  if (report.status !== 'pending') return '该举报已完成处理'
+  if (report.confirmers.includes(userId)) return '您已确认过此举报'
+  if (report.target === userId) return '不能确认针对自己的举报'
+  if (report.initiator === userId) return '发起者只需初始确认'
+
+  const newConfirmers = [...report.confirmers, userId]
+  const isConfirmed = newConfirmers.length >= 3
+
+  await ctx.database.set('Report', report.id, {
+    confirmers: newConfirmers,
+    status: isConfirmed ? 'confirmed' : 'pending'
+  })
+
+  if (isConfirmed) {
+    // 直接内联处理逻辑
+    await ctx.database.set('Report', report.id, { 
+      status: 'confirmed',
+      confirmers: newConfirmers
+    })
+
+    ctx.broadcast([
+      `用户 ${report.target} 已被处罚`,
+      `原因：${report.reason}`,
+      `确认者：${newConfirmers.join(', ')}`
+    ].join('\n'))
+
+    return `举报 ${reportId} 已确认，处理完成！`
+  }
+
+  return `确认成功，当前进度：${newConfirmers.length}/3`
+})
+
+
+
+
+  //
+
+
   
 
   
