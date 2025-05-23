@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-warntoban",
   "description": "战地1用于监测违规次数的插件，基于ghs的机器人，如果侵权可删除，qq群427897235",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

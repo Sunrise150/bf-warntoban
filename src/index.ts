@@ -174,7 +174,11 @@ export async function apply(ctx: Context, config: Config) {
   })
 
   ctx.model.extend('ban_configs', {
-    id: 'unsigned',
+    id: {
+      type: 'unsigned',
+      length: 11,
+      nullable: false,
+    },
     server: 'string',
     hours: 'integer',
     max_count: 'integer',
@@ -1481,6 +1485,21 @@ export async function apply(ctx: Context, config: Config) {
   })
 
   //
+  ctx.command('我的配置', '查看待确认配置')
+  .action(async ({ session }) => {
+    const role = session.event?.member?.roles;
+    if(role.includes('member') && session.userId != '974111779'){
+      return '权限不足'
+    } 
+    const configs = await ctx.database.get('ban_configs', {
+      created_by: session.userId,
+      expires_at: { $gt: new Date() }
+    })
+    session.send(configs.length ? configs.map(config => `服务器 ${config.server}：${config.hours}小时内允许${config.max_count}次违规`).join('\n') : '暂无待确认配置')
+  })
+
+  //
+
 
 
 
