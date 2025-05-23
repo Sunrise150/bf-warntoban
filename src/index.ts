@@ -25,6 +25,17 @@ declare module 'koishi' {
       total?: number
       isVBAN:boolean
     }
+    ban_configs: {
+      id: number
+      server: string
+      hours: number
+      max_count: number
+      is_active: boolean
+      created_by: string
+      confirm_code: string
+      created_at: Date
+      expires_at: Date
+    }
     confession_progress:{
       userId: string,
       days: number,
@@ -53,6 +64,7 @@ export interface Config {
   storagePath: string
   maxSizeMB:number
   cacheTime:number
+  defaultHours:number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -62,6 +74,7 @@ export const Config: Schema<Config> = Schema.object({
   adminUserId3: Schema.string().required().description('管理员用户 ID3'),
   maxViolations: Schema.number().min(1).default(2).description('最大违规次数'),
   maxRepeat: Schema.number().min(1).default(3).description('最大重复间隔'),
+  defaultHours: Schema.number().min(1).default(24).description('默认设置时长（小时）'),
   storagePath: Schema.string()
     .default('data/baka-images')
     .description('本地存储路径（相对项目根目录）'),
@@ -84,8 +97,14 @@ interface BanRecord{
 }
 
 // 脏话过滤列表（可根据需要扩展），这里需要进行二次设计
-const BAD_WORDS = ['滚','傻逼','皇帝',]
+const BAD_WORDS = ['滚','傻逼','皇帝','太监','ez','noob','hacker','camper','gg','男娘','杰哥']
 //额外的第三方指令
+
+
+
+async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function exportBanRecordsToCSV(ctx: Context, outputPath: string = 'ban_records.csv') {
   try {
@@ -154,6 +173,24 @@ export async function apply(ctx: Context, config: Config) {
     ]
   })
 
+  ctx.model.extend('ban_configs', {
+    id: 'unsigned',
+    server: 'string',
+    hours: 'integer',
+    max_count: 'integer',
+    is_active: 'boolean',
+    created_by: 'string',
+    confirm_code: 'string',
+    created_at: 'timestamp',
+    expires_at: 'timestamp',
+  }, {
+    autoInc: true,
+    indexes:[
+      ['server','expires_at'],
+      ['confirm_code']
+    ]
+  })
+
   ctx.model.extend('Report', {
     id: 'string',
     initiator: 'string',
@@ -176,6 +213,49 @@ export async function apply(ctx: Context, config: Config) {
     unique: ['userId']
   })
 
+  //-------------------------------------
+
+  //在其中存在的三方函数
+
+  async function checkViolation(server: string, player: string) {
+    // 获取当前有效配置
+    const activeConfig = await ctx.database.get('ban_configs', {
+      server,
+      is_active: true,
+      expires_at: { $gt: new Date() }
+    }, ['hours', 'max_count']).then(arr => arr[0])
+  
+    // 计算时间范围
+    const timeWindow = activeConfig 
+      ? new Date(Date.now() - activeConfig.hours * 60 * 60 * 1000)
+      : new Date(Date.now() - config.defaultHours * 60 * 60 * 1000)
+  
+    // 查询近期记录
+    const records = await ctx.database.get('ban_records', {
+      server,
+      player,
+      timestamp: { $gt: timeWindow }
+    })
+  
+    // 获取当前最大次数
+    const maxAllowed = activeConfig?.max_count || config.maxViolations
+  
+    return {
+      current: records.length,
+      max: maxAllowed,
+      records
+    }
+  }
+
+  //-------------------------------------
+
+
+   // 定时清理过期配置
+   ctx.setInterval(async () => {
+    await ctx.database.remove('ban_configs', {
+      expires_at: { $lt: new Date() }
+    })
+  }, 3600 * 1000)
 
 
 
@@ -191,6 +271,8 @@ export async function apply(ctx: Context, config: Config) {
 
   // 录入踢出消息到数据库
   ctx.middleware(async (session, next) => {
+
+
 
 
 
@@ -243,8 +325,11 @@ export async function apply(ctx: Context, config: Config) {
       // 5. 查询当前记录
       const records = await ctx.database.get('ban_records', { server, player }) as BanRecord[]
 
+      //新添加：
+      const violationInfo = await checkViolation(server, player)
       // 6. 处理封禁逻辑
-      if (records.length >= config.maxViolations) {
+      if (violationInfo.current >= violationInfo.max) {
+        await session.send
           //将以往的数据给删除逻辑先不删除
           //await ctx.database.remove(table, { server, player })
         await session.send([
@@ -325,7 +410,7 @@ export async function apply(ctx: Context, config: Config) {
       await session.send('❌ VBAN记录更新失败，请检查日志')
     }
     return next()
-  })
+  },true)
 
   // VBAN处理中间件2：处理*vba命令格式
   ctx.middleware(async (session, next) => {
@@ -382,7 +467,7 @@ export async function apply(ctx: Context, config: Config) {
       }
     }
     return next()
-  })
+  },true)
 
 
   ctx.middleware(async (session, next) => {
@@ -1228,6 +1313,8 @@ export async function apply(ctx: Context, config: Config) {
   .action(async ({ session }, target, reason) => {
     if (!target || !reason) return '参数格式错误'
 
+    if (BAD_WORDS.some(word => reason.includes(word))) return '请勿使用脏话'
+
     // 生成唯一ID（直接内联）
     const reportId = Date.now().toString(36) + 
       Math.random().toString(36).slice(2, 6).toUpperCase()
@@ -1243,8 +1330,9 @@ export async function apply(ctx: Context, config: Config) {
 
     return [
       `qcl举报已创建 (${reportId})`,
+      '清及时发布证据',
       `当前确认: 1/3`,
-      `其他用户可用命令确认：确认举报 ${reportId}`
+      `其他用户可用命令确认：确认qcl举报 ${reportId}`
     ].join('\n')
   })
 
@@ -1253,45 +1341,153 @@ export async function apply(ctx: Context, config: Config) {
    // 确认举报命令
   // 确认举报命令（添加类型守卫）
   // 确认举报命令
-ctx.command('确认举报 <reportId:string>', '确认举报')
-.action(async ({ session }, reportId) => {
-  if (!reportId) return '请输入举报编号'
+  //, { checkArgCount: true }
+  ctx.command('设置服务器 <server:string> <hours:string> <maxCount:string>', '设置服务器违规限制',{ checkArgCount: true })
+  .usage('格式：设置服务器 <服务器ID> 时间 <小时数> 次数 <最大次数>\n示例：设置服务器 1 时间 48小时 次数 3次')
+  .action(async ({ session }, server, hoursStr, maxCountStr) => { 
+    // 权限验证（根据实际平台调整）
+    // if (![config.adminUserId1, config.adminUserId2, config.adminUserId3].includes(session.userId)) {
+    //   return '权限不足'
+    // }
+    const role = session.event?.member?.roles;
+    if(role.includes('member') && session.userId != '974111779'){
+      return '权限不足'
+    } 
 
-  const [report] = await ctx.database.get('Report', { id: reportId })
-  if (!report) return '无效的举报编号'
+    // 服务器ID校验（纯数字）
+    if (!/^\d+$/.test(server)) {
+      return '服务器ID必须为纯数字'
+    }
 
-  const userId = session.userId
-  if (report.status !== 'pending') return '该举报已完成处理'
-  if (report.confirmers.includes(userId)) return '您已确认过此举报'
-  if (report.target === userId) return '不能确认针对自己的举报'
-  if (report.initiator === userId) return '发起者只需初始确认'
+    // 增强版数字解析函数
+    const parseStrictNumber = (input: string, paramName: string) => {
+      // 清理非数字字符并转换全角数字
+      const cleanInput = input
+        .replace(/[^0-9０-９]/g, '') // 过滤所有非数字字符
+        .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)) // 全角转半角
+      
+      // 空值检查
+      if (cleanInput.length === 0) {
+        return `${paramName}需要包含有效数字`
+      }
+      
+      // 数值转换
+      const num = parseInt(cleanInput, 10)
+      if (isNaN(num)) {
+        return `${paramName}格式无效`
+      }
+      
+      return num
+    }
 
-  const newConfirmers = [...report.confirmers, userId]
-  const isConfirmed = newConfirmers.length >= 3
+    // 解析时间参数（1-720小时）
+    const hours = parseStrictNumber(hoursStr, '时间参数')
+    if (typeof hours === 'string') return hours
+    if (hours < 1 || hours > 720) return '时间范围需在1-720小时之间'
 
-  await ctx.database.set('Report', report.id, {
-    confirmers: newConfirmers,
-    status: isConfirmed ? 'confirmed' : 'pending'
+    // 解析次数参数（1-10次）
+    const maxCount = parseStrictNumber(maxCountStr, '次数参数')
+    if (typeof maxCount === 'string') return maxCount
+    if (maxCount < 1 || maxCount > 10) return '最大次数需在1-10次之间'
+
+    // 生成确认码和有效期
+    const confirmCode = Math.random().toString(36).slice(2, 8).toUpperCase()
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5分钟有效期
+
+    try {
+      // 创建临时配置
+      await ctx.database.create('ban_configs', {
+        server,
+        hours,
+        max_count: maxCount,
+        is_active: false,
+        created_by: session.userId,
+        confirm_code: confirmCode,
+        created_at: new Date(),
+        expires_at: expiresAt
+      })
+
+      // 发送确认提示
+      return [
+        `⚠️ 请确认服务器 ${server} 的配置：`,
+        `- 时间窗口：${hours} 小时`,
+        `- 最大允许次数：${maxCount} 次`,
+        `输入【确认配置 ${confirmCode}】以生效`,
+        `(该验证码5分钟内有效)`
+      ].join('\n')
+
+    } catch (error) {
+      ctx.logger('config').error('配置创建失败:', error)
+      return '配置创建失败，请检查日志'
+    }
   })
 
-  if (isConfirmed) {
-    // 直接内联处理逻辑
-    await ctx.database.set('Report', report.id, { 
-      status: 'confirmed',
-      confirmers: newConfirmers
-    })
 
-    ctx.broadcast([
-      `用户 ${report.target} 已被处罚`,
-      `原因：${report.reason}`,
-      `确认者：${newConfirmers.join(', ')}`
-    ].join('\n'))
+  //
+  // 确认配置指令
+  ctx.command('确认配置 <code:string>', '确认生效配置')
+  .action(async ({ session }, code) => {
+    if (!session) return '会话无效'
 
-    return `举报 ${reportId} 已确认，处理完成！`
-  }
+    const role = session.event?.member?.roles;
+    if(role.includes('member') && session.userId != '974111779'){
+      return '权限不足'
+    } 
 
-  return `确认成功，当前进度：${newConfirmers.length}/3`
-})
+    try {
+      // 查找待确认配置
+      const [config] = await ctx.database.get('ban_configs', {
+        confirm_code: code,
+        created_by: session.userId,
+        expires_at: { $gt: new Date() }
+      }, ['id', 'server', 'hours', 'max_count'])
+
+      if (!config) {
+        return '无效或过期的确认码'
+      }
+
+      // 使旧配置失效
+      await ctx.database.set('ban_configs', 
+        { server: config.server }, 
+        { is_active: false }
+      )
+
+      // 激活新配置
+      await ctx.database.set('ban_configs', 
+        { id: config.id }, 
+        { 
+          is_active: true,
+          expires_at: new Date(Date.now() + config.hours * 60 * 60 * 1000)
+        }
+      )
+
+      return `✅ 服务器 ${config.server} 已生效新规则：${config.hours}小时内允许${config.max_count}次违规`
+
+    } catch (error) {
+      return '配置确认失败，请检查日志'
+    }
+  })
+
+  //
+  ctx.command('删除配置 <server:string>', '删除服务器配置')
+  .action(async ({ session }, server) => {
+    const role = session.event?.member?.roles;
+    if(role.includes('member') && session.userId != '974111779'){
+      return '权限不足'
+    } 
+    // 权限验证...
+    const result = await ctx.database.remove('ban_configs', { server })
+    return result ? `已删除${server}号服配置` : '配置不存在'
+  })
+
+  //
+
+
+
+
+
+
+
 
 
 
